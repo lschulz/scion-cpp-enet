@@ -1,0 +1,45 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/deps/asio-grpc/src",
+                "${workspaceFolder}/deps/googletest/googletest/include",
+                "${workspaceFolder}/build/generated",
+                "${workspaceFolder}/tests",
+                "${workspaceFolder}/deps/googletest/googlemock/include",
+                "${workspaceFolder}/examples/include"
+            ],
+            "defines": [
+                "AGRPC_BOOST_ASIO"
+            ],
+            "intelliSenseMode": "linux-gcc-x64",
+            "compilerPath": "/usr/bin/g++-13"
+        },
+        {
+            "name": "Win32",
+            "includePath": [
+                "${workspaceFolder}/include",
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/deps/asio-grpc/src",
+                "${workspaceFolder}/deps/googletest/googletest/include",
+                "${workspaceFolder}/build/generated",
+                "${workspaceFolder}/tests",
+                "${workspaceFolder}/deps/googletest/googlemock/include",
+                "${workspaceFolder}/examples/include",
+                "${workspaceFolder}/vcpkg_installed/x64-windows/include"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE",
+                "AGRPC_BOOST_ASIO"
+            ],
+            "windowsSdkVersion": "10.0.26100.0",
+            "intelliSenseMode": "windows-msvc-x64"
+        }
+    ],
+    "version": 4
+}

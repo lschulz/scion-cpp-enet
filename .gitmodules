@@ -1,0 +1,12 @@
+[submodule "python/scapy-scion-int"]
+	path = python/scapy-scion-int
+	url = https://github.com/lschulz/scapy-scion-int.git
+[submodule "deps/googletest"]
+	path = deps/googletest
+	url = https://github.com/google/googletest.git
+[submodule "deps/asio-grpc"]
+	path = deps/asio-grpc
+	url = https://github.com/Tradias/asio-grpc.git
+[submodule "examples/deps/CLI11"]
+	path = examples/deps/CLI11
+	url = https://github.com/CLIUtils/CLI11.git
