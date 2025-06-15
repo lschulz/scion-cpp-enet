@@ -178,3 +178,4 @@ gtest_discover_tests(unit-tests
 # ========
 
 add_subdirectory(examples)
+add_subdirectory(enet)
