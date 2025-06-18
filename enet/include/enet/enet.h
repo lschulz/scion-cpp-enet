@@ -35,6 +35,8 @@
 #ifndef ENET_INCLUDE_H
 #define ENET_INCLUDE_H
 
+#include "scion/daemon/client.hpp"
+
 #include <assert.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -489,6 +491,19 @@ extern "C" {
 
 // =======================================================================//
 // !
+// ! Global static SCION state
+// !
+// =======================================================================//
+
+typedef struct _ENetScionContext {
+    scion::IsdAsn localAS;
+    scion::daemon::PortRange ports;
+} ENetScionContext;
+
+static ENetScionContext _gENetScionContext;
+
+// =======================================================================//
+// !
 // ! General ENet structs/enums
 // !
 // =======================================================================//
@@ -536,6 +551,7 @@ extern "C" {
      * address is updated from ENET_HOST_BROADCAST to the server's actual IP address.
      */
     typedef struct _ENetAddress {
+        uint64_t isdAsn;
         struct in6_addr host;
         enet_uint16 port;
         enet_uint16 sin6_scope_id;
@@ -884,7 +900,7 @@ extern "C" {
      * Initializes ENet globally.  Must be called prior to using any functions in ENet.
      * @returns 0 on success, < 0 on failure
      */
-    ENET_API int enet_initialize(void);
+    ENET_API int enet_initialize(const char* sciondAddress);
 
     /**
      * Initializes ENet globally and supplies user-overridden callbacks. Must be called prior to using any functions in ENet. Do not use enet_initialize() if you use this variant. Make sure the ENetCallbacks structure is zeroed out so that any additional callbacks added in future versions will be properly ignored.
@@ -893,7 +909,7 @@ extern "C" {
      * @param inits user-overridden callbacks where any NULL callbacks will use ENet's defaults
      * @returns 0 on success, < 0 on failure
      */
-    ENET_API int enet_initialize_with_callbacks(ENetVersion version, const ENetCallbacks * inits);
+    ENET_API int enet_initialize_with_callbacks(ENetVersion version, const ENetCallbacks * inits, const char* sciondAddress);
 
     /**
      * Shuts down ENet globally.  Should be called when a program that has initialized ENet exits.
@@ -1272,7 +1288,7 @@ extern "C" {
 
     ENetCallbacks callbacks = { malloc, free, abort, enet_packet_create, enet_packet_destroy };
 
-    int enet_initialize_with_callbacks(ENetVersion version, const ENetCallbacks *inits) {
+    int enet_initialize_with_callbacks(ENetVersion version, const ENetCallbacks *inits, const char* sciondAddress) {
         if (version < ENET_VERSION_CREATE(1, 3, 0)) {
             return -1;
         }
@@ -1299,7 +1315,7 @@ extern "C" {
             callbacks.packet_destroy = inits->packet_destroy;
         }
 
-        return enet_initialize();
+        return enet_initialize(sciondAddress);
     }
 
     ENetVersion enet_linked_version(void) {
@@ -2997,11 +3013,11 @@ extern "C" {
                 if (channel != NULL) {
                     if (windowWrap) {
                         continue;
-                    } else if (outgoingCommand->sendAttempts < 1 && 
+                    } else if (outgoingCommand->sendAttempts < 1 &&
                             !(outgoingCommand->reliableSequenceNumber % ENET_PEER_RELIABLE_WINDOW_SIZE) &&
                             (channel->reliableWindows [(reliableWindow + ENET_PEER_RELIABLE_WINDOWS - 1) % ENET_PEER_RELIABLE_WINDOWS] >= ENET_PEER_RELIABLE_WINDOW_SIZE ||
-                            channel->usedReliableWindows & ((((1u << (ENET_PEER_FREE_RELIABLE_WINDOWS + 2)) - 1) << reliableWindow) | 
-                            (((1u << (ENET_PEER_FREE_RELIABLE_WINDOWS + 2)) - 1) >> (ENET_PEER_RELIABLE_WINDOWS - reliableWindow))))) 
+                            channel->usedReliableWindows & ((((1u << (ENET_PEER_FREE_RELIABLE_WINDOWS + 2)) - 1) << reliableWindow) |
+                            (((1u << (ENET_PEER_FREE_RELIABLE_WINDOWS + 2)) - 1) >> (ENET_PEER_RELIABLE_WINDOWS - reliableWindow)))))
                     {
                         windowWrap = 1;
                         currentSendReliableCommand = enet_list_end (& peer->outgoingSendReliableCommands);
@@ -3138,7 +3154,7 @@ extern "C" {
 
     static int enet_protocol_send_outgoing_commands(ENetHost *host, ENetEvent *event, int checkForTimeouts) {
         enet_uint8 headerData[
-            sizeof(ENetProtocolHeader) 
+            sizeof(ENetProtocolHeader)
 #ifdef ENET_USE_MORE_PEERS
             + sizeof(enet_uint8) // additional peer id byte
 #endif
@@ -5475,7 +5491,15 @@ extern "C" {
         }
     #endif // __MINGW__
 
-    int enet_initialize(void) {
+    int enet_initialize(const char* daemonAddress) {
+        using namespace scion;
+        daemon::GrpcDaemonClient sciond(daemonAddress);
+        auto localAS = sciond.rpcAsInfo(IsdAsn());
+        if (isError(localAS)) return -1;
+        _gENetScionContext.localAS = localAS->isdAsn;
+        auto portRange = sciond.rpcPortRange();
+        if (isError(portRange)) return -1;
+        _gENetScionContext.ports = *portRange;
         return 0;
     }
 
@@ -6050,7 +6074,7 @@ extern "C" {
             case ENET_SOCKOPT_IPV6_V6ONLY:
                 result = setsockopt(socket, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&value, sizeof(int));
                 break;
-            
+
             case ENET_SOCKOPT_TTL:
                 result = setsockopt(socket, IPPROTO_IP, IP_TTL, (char *)&value, sizeof(int));
                 break;

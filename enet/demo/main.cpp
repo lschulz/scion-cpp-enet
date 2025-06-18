@@ -54,7 +54,7 @@ int main(int argc, char* argv[])
         return ec;
     }
 
-    if (enet_initialize()) {
+    if (enet_initialize(args.sciond.c_str())) {
         std::cerr << "Error during ENet initialization.\n";
         return EXIT_FAILURE;
     }
