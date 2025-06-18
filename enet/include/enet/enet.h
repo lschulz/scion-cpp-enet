@@ -35,8 +35,10 @@
 #ifndef ENET_INCLUDE_H
 #define ENET_INCLUDE_H
 
-#include "scion/daemon/client.hpp"
 #include "scion/bsd/udp_socket.hpp"
+#include "scion/daemon/client.hpp"
+#include "scion/path/path.hpp"
+#include "scion/path/cache.hpp"
 
 #include <assert.h>
 #include <stdlib.h>
@@ -174,7 +176,7 @@
     #define ENET_BUFFER_MAXIMUM MSG_MAXIOVLEN
     #endif
 
-    typedef int ENetSocket;
+    typedef scion::bsd::UDPSocket<scion::bsd::BSDSocket<sockaddr_in6>> ENetSocket;
 
     #define ENET_SOCKET_NULL -1
 
@@ -499,6 +501,7 @@ extern "C" {
 
 typedef struct _ENetScionContext {
     std::unique_ptr<scion::daemon::GrpcDaemonClient> sciond;
+    scion::PathCache pathCache;
     scion::IsdAsn localAS;
     scion::daemon::PortRange ports;
 } ENetScionContext;
@@ -682,14 +685,15 @@ static ENetScionContext _gENetScionContext;
     };
 
     typedef struct _ENetChannel {
-        enet_uint16 outgoingReliableSequenceNumber;
-        enet_uint16 outgoingUnreliableSequenceNumber;
-        enet_uint16 usedReliableWindows;
-        enet_uint16 reliableWindows[ENET_PEER_RELIABLE_WINDOWS];
-        enet_uint16 incomingReliableSequenceNumber;
-        enet_uint16 incomingUnreliableSequenceNumber;
-        ENetList    incomingReliableCommands;
-        ENetList    incomingUnreliableCommands;
+        enet_uint16  outgoingReliableSequenceNumber;
+        enet_uint16  outgoingUnreliableSequenceNumber;
+        enet_uint16  usedReliableWindows;
+        enet_uint16  reliableWindows[ENET_PEER_RELIABLE_WINDOWS];
+        enet_uint16  incomingReliableSequenceNumber;
+        enet_uint16  incomingUnreliableSequenceNumber;
+        ENetList     incomingReliableCommands;
+        ENetList     incomingUnreliableCommands;
+        scion::Path* path;
     } ENetChannel;
 
     typedef enum _ENetPeerFlag
@@ -807,7 +811,7 @@ static ENetScionContext _gENetScionContext;
      *  @sa enet_host_bandwidth_throttle()
      */
     typedef struct _ENetHost {
-        ENetSocket            socket;
+        ENetSocket*           socket;
         ENetAddress           address;           /**< Internet address of the host */
         enet_uint32           incomingBandwidth; /**< downstream bandwidth of the host */
         enet_uint32           outgoingBandwidth; /**< upstream bandwidth of the host */
@@ -929,20 +933,20 @@ static ENetScionContext _gENetScionContext;
     ENET_API enet_uint32 enet_time_get(void);
 
     /** ENet socket functions */
-    ENET_API ENetSocket enet_socket_create(ENetSocketType);
-    ENET_API int        enet_socket_bind(ENetSocket, const ENetAddress *);
-    ENET_API int        enet_socket_get_address(ENetSocket, ENetAddress *);
-    ENET_API int        enet_socket_listen(ENetSocket, int);
-    ENET_API ENetSocket enet_socket_accept(ENetSocket, ENetAddress *);
-    ENET_API int        enet_socket_connect(ENetSocket, const ENetAddress *);
-    ENET_API int        enet_socket_send(ENetSocket, const ENetAddress *, const ENetBuffer *, size_t);
-    ENET_API int        enet_socket_receive(ENetSocket, ENetAddress *, ENetBuffer *, size_t);
-    ENET_API int        enet_socket_wait(ENetSocket, enet_uint32 *, enet_uint64);
-    ENET_API int        enet_socket_set_option(ENetSocket, ENetSocketOption, int);
-    ENET_API int        enet_socket_get_option(ENetSocket, ENetSocketOption, int *);
-    ENET_API int        enet_socket_shutdown(ENetSocket, ENetSocketShutdown);
-    ENET_API void       enet_socket_destroy(ENetSocket);
-    ENET_API int        enet_socketset_select(ENetSocket, ENetSocketSet *, ENetSocketSet *, enet_uint32);
+    ENET_API ENetSocket* enet_socket_create(ENetSocketType);
+    ENET_API int         enet_socket_bind(ENetSocket*, const ENetAddress *);
+    ENET_API int         enet_socket_get_address(ENetSocket*, ENetAddress *);
+    ENET_API int         enet_socket_listen(ENetSocket*, int);
+    ENET_API ENetSocket* enet_socket_accept(ENetSocket*, ENetAddress *);
+    ENET_API int         enet_socket_connect(ENetSocket*, const ENetAddress *);
+    ENET_API int         enet_socket_send(ENetSocket*, const ENetAddress *, const ENetBuffer *, size_t);
+    ENET_API int         enet_socket_receive(ENetSocket*, ENetAddress *, ENetBuffer *, size_t);
+    ENET_API int         enet_socket_wait(ENetSocket*, enet_uint32 *, enet_uint64);
+    ENET_API int         enet_socket_set_option(ENetSocket*, ENetSocketOption, int);
+    ENET_API int         enet_socket_get_option(ENetSocket*, ENetSocketOption, int *);
+    ENET_API int         enet_socket_shutdown(ENetSocket*, ENetSocketShutdown);
+    ENET_API void        enet_socket_destroy(ENetSocket*);
+    ENET_API int         enet_socketset_select(int, ENetSocketSet *, ENetSocketSet *, enet_uint32);
 
     /** Attempts to parse the printable form of the IP address in the parameter hostName
         and sets the host field in the address parameter if successful.
@@ -4579,12 +4583,12 @@ extern "C" {
         memset(host->peers, 0, peerCount * sizeof(ENetPeer));
 
         host->socket = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
-        if (host->socket != ENET_SOCKET_NULL) {
+        if (host->socket) {
             enet_socket_set_option (host->socket, ENET_SOCKOPT_IPV6_V6ONLY, 0);
         }
 
-        if (host->socket == ENET_SOCKET_NULL || (address != NULL && enet_socket_bind(host->socket, address) < 0)) {
-            if (host->socket != ENET_SOCKET_NULL) {
+        if (!host->socket || (address != NULL && enet_socket_bind(host->socket, address) < 0)) {
+            if (host->socket) {
                 enet_socket_destroy(host->socket);
             }
 
@@ -5508,6 +5512,7 @@ extern "C" {
 
     void enet_deinitialize(void) {
         _gENetScionContext.sciond.reset();
+        _gENetScionContext.pathCache.clear();
     }
 
     enet_uint64 enet_host_random_seed(void) {
@@ -5590,76 +5595,79 @@ extern "C" {
         return enet_address_get_host_ip(address, name, nameLength);
     } /* enet_address_get_host_old */
 
-    int enet_socket_bind(ENetSocket socket, const ENetAddress *address) {
-        struct sockaddr_in6 sin;
-        memset(&sin, 0, sizeof(struct sockaddr_in6));
-        sin.sin6_family = AF_INET6;
-
-        if (address != NULL) {
-            sin.sin6_port       = ENET_HOST_TO_NET_16(address->port);
-            sin.sin6_addr       = address->host;
-            sin.sin6_scope_id   = address->sin6_scope_id;
-        } else {
-            sin.sin6_port       = 0;
-            sin.sin6_addr       = ENET_HOST_ANY;
-            sin.sin6_scope_id   = 0;
+    int enet_socket_bind(ENetSocket* socket, const ENetAddress *address) {
+        using namespace scion;
+        Endpoint<generic::IPEndpoint> ep{
+            IsdAsn(address->isdAsn),
+            generic::IPEndpoint(
+                generic::toGenericAddr(address->host),
+                address->port
+        )};
+        auto ec = socket->bind(ep, _gENetScionContext.ports.first, _gENetScionContext.ports.second);
+        if (ec) {
+            if (ec.category() == std::system_category())
+                return ec.value();
+            else
+                return -1;
         }
-
-        return bind(socket, (struct sockaddr *)&sin, sizeof(struct sockaddr_in6));
+        return 0;
     }
 
-    int enet_socket_get_address(ENetSocket socket, ENetAddress *address) {
+    int enet_socket_get_address(ENetSocket* socket, ENetAddress *address) {
+        auto localEp = socket->getLocalEp();
         struct sockaddr_in6 sin;
         socklen_t sinLength = sizeof(struct sockaddr_in6);
 
-        if (getsockname(socket, (struct sockaddr *) &sin, &sinLength) == -1) {
+        if (getsockname(socket->getNativeHandle(), (struct sockaddr *) &sin, &sinLength) == -1) {
             return -1;
         }
 
-        address->host           = sin.sin6_addr;
-        address->port           = ENET_NET_TO_HOST_16(sin.sin6_port);
-        address->sin6_scope_id  = sin.sin6_scope_id;
+        address->host           = scion::generic::toUnderlay<in6_addr>(localEp.getHost()).value();
+        address->port           = localEp.getPort();
+        // TODO(lschulz): address->sin6_scope_id  = sin.sin6_scope_id;
+        address->sin6_scope_id  = 0;
 
         return 0;
     }
 
-    int enet_socket_listen(ENetSocket socket, int backlog) {
-        return listen(socket, backlog < 0 ? SOMAXCONN : backlog);
+    int enet_socket_listen(ENetSocket* socket, int backlog) {
+        return listen(socket->getNativeHandle(), backlog < 0 ? SOMAXCONN : backlog);
     }
 
-    ENetSocket enet_socket_create(ENetSocketType type) {
-        return socket(PF_INET6, (int)type == ENET_SOCKET_TYPE_DATAGRAM ? SOCK_DGRAM : SOCK_STREAM, 0);
+    ENetSocket* enet_socket_create(ENetSocketType type) {
+        assert(type == ENET_SOCKET_TYPE_DATAGRAM);
+        return new ENetSocket();
     }
 
-    int enet_socket_set_option(ENetSocket socket, ENetSocketOption option, int value) {
+    int enet_socket_set_option(ENetSocket* socket, ENetSocketOption option, int value) {
         int result = -1;
 
         switch (option) {
             case ENET_SOCKOPT_NONBLOCK:
-                result = fcntl(socket, F_SETFL, (value ? O_NONBLOCK : 0) | (fcntl(socket, F_GETFL) & ~O_NONBLOCK));
+                result = fcntl(socket->getNativeHandle(), F_SETFL, (value ? O_NONBLOCK : 0) | (fcntl(socket->getNativeHandle(), F_GETFL) & ~O_NONBLOCK));
                 break;
 
             case ENET_SOCKOPT_BROADCAST:
-                result = setsockopt(socket, SOL_SOCKET, SO_BROADCAST, (char *)&value, sizeof(int));
+                result = setsockopt(socket->getNativeHandle(), SOL_SOCKET, SO_BROADCAST, (char *)&value, sizeof(int));
                 break;
 
             case ENET_SOCKOPT_REUSEADDR:
-                result = setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, (char *)&value, sizeof(int));
+                result = setsockopt(socket->getNativeHandle(), SOL_SOCKET, SO_REUSEADDR, (char *)&value, sizeof(int));
                 break;
 
             case ENET_SOCKOPT_RCVBUF:
-                result = setsockopt(socket, SOL_SOCKET, SO_RCVBUF, (char *)&value, sizeof(int));
+                result = setsockopt(socket->getNativeHandle(), SOL_SOCKET, SO_RCVBUF, (char *)&value, sizeof(int));
                 break;
 
             case ENET_SOCKOPT_SNDBUF:
-                result = setsockopt(socket, SOL_SOCKET, SO_SNDBUF, (char *)&value, sizeof(int));
+                result = setsockopt(socket->getNativeHandle(), SOL_SOCKET, SO_SNDBUF, (char *)&value, sizeof(int));
                 break;
 
             case ENET_SOCKOPT_RCVTIMEO: {
                 struct timeval timeVal;
                 timeVal.tv_sec  = value / 1000;
                 timeVal.tv_usec = (value % 1000) * 1000;
-                result = setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeVal, sizeof(struct timeval));
+                result = setsockopt(socket->getNativeHandle(), SOL_SOCKET, SO_RCVTIMEO, (char *)&timeVal, sizeof(struct timeval));
                 break;
             }
 
@@ -5667,20 +5675,20 @@ extern "C" {
                 struct timeval timeVal;
                 timeVal.tv_sec  = value / 1000;
                 timeVal.tv_usec = (value % 1000) * 1000;
-                result = setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeVal, sizeof(struct timeval));
+                result = setsockopt(socket->getNativeHandle(), SOL_SOCKET, SO_SNDTIMEO, (char *)&timeVal, sizeof(struct timeval));
                 break;
             }
 
             case ENET_SOCKOPT_NODELAY:
-                result = setsockopt(socket, IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof(int));
+                result = setsockopt(socket->getNativeHandle(), IPPROTO_TCP, TCP_NODELAY, (char *)&value, sizeof(int));
                 break;
 
             case ENET_SOCKOPT_IPV6_V6ONLY:
-                result = setsockopt(socket, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&value, sizeof(int));
+                result = setsockopt(socket->getNativeHandle(), IPPROTO_IPV6, IPV6_V6ONLY, (char *)&value, sizeof(int));
                 break;
 
             case ENET_SOCKOPT_TTL:
-                result = setsockopt(socket, IPPROTO_IP, IP_TTL, (char *)&value, sizeof(int));
+                result = setsockopt(socket->getNativeHandle(), IPPROTO_IP, IP_TTL, (char *)&value, sizeof(int));
                 break;
 
             default:
@@ -5689,19 +5697,19 @@ extern "C" {
         return result == -1 ? -1 : 0;
     } /* enet_socket_set_option */
 
-    int enet_socket_get_option(ENetSocket socket, ENetSocketOption option, int *value) {
+    int enet_socket_get_option(ENetSocket* socket, ENetSocketOption option, int *value) {
         int result = -1;
         socklen_t len;
 
         switch (option) {
             case ENET_SOCKOPT_ERROR:
                 len    = sizeof(int);
-                result = getsockopt(socket, SOL_SOCKET, SO_ERROR, value, &len);
+                result = getsockopt(socket->getNativeHandle(), SOL_SOCKET, SO_ERROR, value, &len);
                 break;
 
             case ENET_SOCKOPT_TTL:
                 len = sizeof (int);
-                result = getsockopt(socket, IPPROTO_IP, IP_TTL, (char *)value, &len);
+                result = getsockopt(socket->getNativeHandle(), IPPROTO_IP, IP_TTL, (char *)value, &len);
                 break;
 
             default:
@@ -5710,56 +5718,37 @@ extern "C" {
         return result == -1 ? -1 : 0;
     }
 
-    int enet_socket_connect(ENetSocket socket, const ENetAddress *address) {
-        struct sockaddr_in6 sin;
-        int result;
-
-        memset(&sin, 0, sizeof(struct sockaddr_in6));
-
-        sin.sin6_family     = AF_INET6;
-        sin.sin6_port       = ENET_HOST_TO_NET_16(address->port);
-        sin.sin6_addr       = address->host;
-        sin.sin6_scope_id   = address->sin6_scope_id;
-
-        result = connect(socket, (struct sockaddr *)&sin, sizeof(struct sockaddr_in6));
-        if (result == -1 && errno == EINPROGRESS) {
-            return 0;
-        }
-
-        return result;
-    }
-
-    ENetSocket enet_socket_accept(ENetSocket socket, ENetAddress *address) {
-        int result;
-        struct sockaddr_in6 sin;
-        socklen_t sinLength = sizeof(struct sockaddr_in6);
-
-        result = accept(socket,address != NULL ? (struct sockaddr *) &sin : NULL, address != NULL ? &sinLength : NULL);
-
-        if (result == -1) {
-            return ENET_SOCKET_NULL;
-        }
-
-        if (address != NULL) {
-            address->host = sin.sin6_addr;
-            address->port = ENET_NET_TO_HOST_16 (sin.sin6_port);
-            address->sin6_scope_id = sin.sin6_scope_id;
-        }
-
-        return result;
-    }
-
-    int enet_socket_shutdown(ENetSocket socket, ENetSocketShutdown how) {
-        return shutdown(socket, (int) how);
-    }
-
-    void enet_socket_destroy(ENetSocket socket) {
-        if (socket != -1) {
-            close(socket);
+    int enet_socket_connect(ENetSocket* socket, const ENetAddress *address) {
+        using namespace scion;
+        auto result = socket->connect(Endpoint<generic::IPEndpoint>(
+            IsdAsn(address->isdAsn),
+            generic::IPEndpoint(
+                generic::toGenericAddr(address->host),
+                address->port
+            )
+        ));
+        if (result) {
+            if (result.category() == std::system_category())
+                return result.value();
+            else
+                return -1;
         }
     }
 
-    int enet_socket_send(ENetSocket socket, const ENetAddress *address, const ENetBuffer *buffers, size_t bufferCount) {
+    ENetSocket* enet_socket_accept(ENetSocket* socket, ENetAddress *address) {
+        return NULL; // TODO(lschulz): requires a TCP/SCION socket
+    }
+
+    int enet_socket_shutdown(ENetSocket* socket, ENetSocketShutdown how) {
+        // return shutdown(socket, (int) how);
+        return 0;
+    }
+
+    void enet_socket_destroy(ENetSocket* socket) {
+        if (socket) delete socket;
+    }
+
+    int enet_socket_send(ENetSocket* socket, const ENetAddress *address, const ENetBuffer *buffers, size_t bufferCount) {
         struct msghdr msgHdr;
         struct sockaddr_in6 sin;
         int sentLength;
@@ -5781,7 +5770,8 @@ extern "C" {
         msgHdr.msg_iov    = (struct iovec *) buffers;
         msgHdr.msg_iovlen = bufferCount;
 
-        sentLength = sendmsg(socket, &msgHdr, MSG_NOSIGNAL);
+        // TODO(lschulz): socket->sendTo();
+        sentLength = sendmsg(socket->getNativeHandle(), &msgHdr, MSG_NOSIGNAL);
 
         if (sentLength == -1) {
             switch (errno)
@@ -5801,7 +5791,7 @@ extern "C" {
         return sentLength;
     } /* enet_socket_send */
 
-    int enet_socket_receive(ENetSocket socket, ENetAddress *address, ENetBuffer *buffers, size_t bufferCount) {
+    int enet_socket_receive(ENetSocket* socket, ENetAddress *address, ENetBuffer *buffers, size_t bufferCount) {
         struct msghdr msgHdr;
         struct sockaddr_in6 sin;
         int recvLength;
@@ -5816,7 +5806,8 @@ extern "C" {
         msgHdr.msg_iov    = (struct iovec *) buffers;
         msgHdr.msg_iovlen = bufferCount;
 
-        recvLength = recvmsg(socket, &msgHdr, MSG_NOSIGNAL);
+        // TODO(lschulz): socket->recvFrom();
+        recvLength = recvmsg(socket->getNativeHandle(), &msgHdr, MSG_NOSIGNAL);
 
         if (recvLength == -1) {
             if (errno == EWOULDBLOCK) {
@@ -5839,7 +5830,7 @@ extern "C" {
         return recvLength;
     } /* enet_socket_receive */
 
-    int enet_socketset_select(ENetSocket maxSocket, ENetSocketSet *readSet, ENetSocketSet *writeSet, enet_uint32 timeout) {
+    int enet_socketset_select(int maxSocket, ENetSocketSet *readSet, ENetSocketSet *writeSet, enet_uint32 timeout) {
         struct timeval timeVal;
 
         timeVal.tv_sec  = timeout / 1000;
@@ -5848,11 +5839,11 @@ extern "C" {
         return select(maxSocket + 1, readSet, writeSet, NULL, &timeVal);
     }
 
-    int enet_socket_wait(ENetSocket socket, enet_uint32 *condition, enet_uint64 timeout) {
+    int enet_socket_wait(ENetSocket* socket, enet_uint32 *condition, enet_uint64 timeout) {
         struct pollfd pollSocket;
         int pollCount;
 
-        pollSocket.fd     = socket;
+        pollSocket.fd     = socket->getNativeHandle();;
         pollSocket.events = 0;
 
         if (*condition & ENET_SOCKET_WAIT_SEND) {

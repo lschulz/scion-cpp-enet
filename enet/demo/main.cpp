@@ -204,7 +204,8 @@ int runClient(ENetAddress& bindAddress, ENetAddress& address)
     ENetPeer* peer = nullptr;
     ENetEvent event = {};
 
-    client = enet_host_create(NULL, 1, 2, 0, 0);
+    // TODO(lschulz): Don't require bind address for SCION
+    client = enet_host_create(&bindAddress, 1, 2, 0, 0);
     if (!client) {
         std::cerr << "Creating client host failed\n";
         return EXIT_FAILURE;
