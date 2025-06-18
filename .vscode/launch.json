@@ -39,7 +39,7 @@
             "args": [
                 "--sciond", "127.0.0.27:30255",
                 "--bind", "127.0.0.1",
-                "--connect", "127.0.0.1:32000"
+                "--connect", "1-ff00:0:111,127.0.0.1:32000"
             ],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",

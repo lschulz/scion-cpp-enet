@@ -36,12 +36,14 @@
 #define ENET_INCLUDE_H
 
 #include "scion/daemon/client.hpp"
+#include "scion/bsd/udp_socket.hpp"
 
 #include <assert.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
+#include <memory>
 
 #define ENET_VERSION_MAJOR 2
 #define ENET_VERSION_MINOR 6
@@ -496,6 +498,7 @@ extern "C" {
 // =======================================================================//
 
 typedef struct _ENetScionContext {
+    std::unique_ptr<scion::daemon::GrpcDaemonClient> sciond;
     scion::IsdAsn localAS;
     scion::daemon::PortRange ports;
 } ENetScionContext;
@@ -5493,17 +5496,19 @@ extern "C" {
 
     int enet_initialize(const char* daemonAddress) {
         using namespace scion;
-        daemon::GrpcDaemonClient sciond(daemonAddress);
-        auto localAS = sciond.rpcAsInfo(IsdAsn());
+        _gENetScionContext.sciond = std::make_unique<daemon::GrpcDaemonClient>(daemonAddress);
+        auto localAS = _gENetScionContext.sciond->rpcAsInfo(IsdAsn());
         if (isError(localAS)) return -1;
         _gENetScionContext.localAS = localAS->isdAsn;
-        auto portRange = sciond.rpcPortRange();
+        auto portRange = _gENetScionContext.sciond->rpcPortRange();
         if (isError(portRange)) return -1;
         _gENetScionContext.ports = *portRange;
         return 0;
     }
 
-    void enet_deinitialize(void) {}
+    void enet_deinitialize(void) {
+        _gENetScionContext.sciond.reset();
+    }
 
     enet_uint64 enet_host_random_seed(void) {
         return (enet_uint64) time(NULL);

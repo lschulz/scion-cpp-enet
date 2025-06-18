@@ -1,4 +1,5 @@
 #include "scion/error_codes.hpp"
+#include "scion/addr/endpoint.hpp"
 #include "scion/addr/generic_ip.hpp"
 #include "scion/bsd/sockaddr.hpp"
 #include "console.hpp"
@@ -76,7 +77,26 @@ std::error_code parseENetAddr(std::string_view raw, ENetAddress& addr)
         } else {
             addr.host = *host;
         }
+        addr.isdAsn = 0;
         addr.port = bind->getPort();
+        addr.sin6_scope_id = 0;
+    }
+    return ErrorCode::Ok;
+}
+
+std::error_code parseENetScionAddr(std::string_view raw, ENetAddress& addr)
+{
+    using namespace scion;
+    if (auto ep = Endpoint<generic::IPEndpoint>::Parse(raw); isError(ep)) {
+        return ep.error();
+    } else {
+        if (auto host = scion::generic::toUnderlay<in6_addr>(ep->getHost().map4in6()); isError(host)) {
+            return host.error();
+        } else {
+            addr.host = *host;
+        }
+        addr.isdAsn = ep->getIsdAsn();
+        addr.port = ep->getPort();
         addr.sin6_scope_id = 0;
     }
     return ErrorCode::Ok;
@@ -109,7 +129,7 @@ int run(Arguments& args)
         result = runServer(bindAddress);
     } else {
         ENetAddress address = {};
-        if (parseENetAddr(args.connectTo, address)) {
+        if (parseENetScionAddr(args.connectTo, address)) {
             std::cerr << std::format("Not a valid address: {}\n", args.connectTo);
             return EXIT_FAILURE;
         }
